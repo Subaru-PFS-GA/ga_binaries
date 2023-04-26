@@ -1,0 +1,99 @@
+#!/bin/bash
+
+# Verify if file is being sourced
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    echo "The init script must be sourced!"
+    exit
+fi
+
+if [[ -f "~/.bashrc" ]]; then
+    echo "Sourcing .bashrc"
+    source ~/.bashrc
+fi
+
+# Parse arguments
+
+PARAMS=""
+PFS_BINARIES_ENV="default"
+INIT_GIT_KEY="0"
+
+while (( "$#" )); do
+    case "$1" in
+      -e|--env)
+        PFS_BINARIES_ENV="$2"
+        shift 2
+        ;;
+      -g|--init-git)
+        INIT_GIT_KEY="0"
+        shift
+        ;;
+      --no-init-git)
+        INIT_GIT_KEY="0"
+        shift
+        ;;
+      --) # end argument parsing
+        shift
+        break
+        ;;
+      *) # preserve all other arguments
+        PARAMS="$PARAMS $1"
+        shift
+        ;;
+    esac
+done
+
+# Source environment configs
+
+if [[ -f "./configs/envs/$PFS_BINARIES_ENV.sh" ]]; then
+    echo "Sourcing environment file $PFS_BINARIES_ENV"
+    source "./configs/envs/$PFS_BINARIES_ENV.sh"
+else
+    ech "Environment file for $PFS_BINARIES_ENV not found. "
+    exit 1
+fi
+
+echo "Activating conda environment $PFS_BINARIES_CONDAENV"
+source "$PFS_BINARIES_CONDAPATH/bin/activate" "$PFS_BINARIES_CONDAENV"
+
+# Verify / init git config
+
+function init_git() {
+    echo "Configuring git repo"
+
+    # Default merge strategy
+    git config --unset pull.ff
+    git config pull.rebase false
+
+    # Configure git filter to remove notebook output
+    # It requires a .gitattributes file under each submodule with contents:
+    # `nb/**/*.ipynb filter=ipynb_stripout`
+    git config --local filter.ipynb_stripout.clean "$(which python) $(git rev-parse --show-toplevel)/bin/ipynb_stripout"
+    git config --local filter.ipynb_stripout.smudge cat
+    git config --local filter.ipynb_stripout.required true
+}
+
+init_git
+
+export PYTHONPATH="./python/test:./python:$PYTHONPATH"
+
+# Generate .env file for vscode python debugging
+cat > .env <<EOF
+CUDA_VISIBLE_DEVICES="$CUDA_VISIBLE_DEVICES"
+
+PYTHONPATH="$PYTHONPATH"
+
+PFS_BINARIES_ROOT="$PFS_BINARIES_ROOT"
+PFS_BINARIES_DATA="$PFS_BINARIES_DATA"
+PFS_BINARIES_TEST="$PFS_BINARIES_TEST"
+EOF
+
+# Write bash history to project root
+export HISTFILE="$PFS_BINARIES_ROOT/.bash_history.$$"
+export HISTSIZE=10000
+
+cd $PFS_BINARIES_ROOT
+
+echo "Configured environment for PFS development."
+echo "Data directory is $PFS_BINARIES_DATA"
+
+pushd . > /dev/null
