@@ -2,6 +2,7 @@ import numpy as np
 
 from .orbits import Orbits
 from .observation import Observation
+from .luminosity import Luminosity
 
 class Binaries():
     def __init__(self):
@@ -15,6 +16,10 @@ class Binaries():
         self.i = None
         self.omega = None
         self.theta0 = None
+        self.v_spread = 5.1 #non-binary velocity sigma #line added by Anney
+        self.v_com = None #added by Anney
+        self.lum = None #added by Anney, luminosity for each star
+        #luminoisity should be sampled only once & fixed per star, just like COM
 
     def observe(self, t, s=np.s_[:]):
         """
@@ -23,12 +28,13 @@ class Binaries():
         t is the time in units of days
         v_los is in units of km/s
         """
-
         gamma = Orbits.calculate_gamma(self.gamma0[s], 10**self.logP[s], t)
         theta = Orbits.calculate_theta_iterative(gamma, self.e[s])
         v_los = Orbits.calculate_v_los(self.a[s], 10**self.logP[s] / Orbits.DAYS_PER_YEAR, self.e[s], self.i[s], theta, self.omega[s])
         v_los = Orbits.convert_AU_per_year_to_km_per_sec(v_los)
-        v_los_err = np.full_like(v_los, np.nan)
+        
+        v_los_err = Luminosity.gen_noise(self.lum)
+        #v_los_err = np.full_like(v_los, np.nan)
 
         obs = Observation()
         obs.t = t
