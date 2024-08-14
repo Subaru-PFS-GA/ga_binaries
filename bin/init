@@ -74,7 +74,7 @@ function init_git() {
 
 init_git
 
-export PYTHONPATH="./python:$PYTHONPATH"
+export PYTHONPATH="`realpath ./python`:$PYTHONPATH"
 
 # Generate .env file for vscode python debugging
 cat > .env <<EOF
