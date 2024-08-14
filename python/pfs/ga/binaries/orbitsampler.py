@@ -13,17 +13,15 @@ class OrbitSampler():
     def __init__(self):
         self.m1 = 0.8               # Primary mass
 
-    def _draw_mass_ratio_q(self, output_size=1, lower_bound=0.1, upper_bound=1.0):
+    def _draw_mass_ratio_q(self, output_size=1, lower_bound=0.1, upper_bound=1.0, mu=0.23, sigma=0.42):
         """
         Mass ratio (q, unitless) follows a normal distribution with mean=0.23, stdev=0.42
         """
-        mu = 0.23
-        sigma = 0.42
+        
         a, b = (lower_bound - mu) / sigma, (upper_bound - mu) / sigma
         r = scipy.stats.truncnorm.rvs(a=a, b=b, loc=mu, scale=sigma, size=output_size)
         return np.atleast_1d(r)
-    
-    
+        
     def _draw_period_logP(self, q, amin=0.21, amax=412.0, mu=4.8, sigma=2.3):
         """
         Period (P, units of day), sampled in log P 
