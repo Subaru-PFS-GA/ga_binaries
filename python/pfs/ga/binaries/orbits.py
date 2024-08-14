@@ -20,10 +20,14 @@ class Orbits():
         P is period in any time unit
         t is time in the same unit as P
         """
+
+        gamma0 = np.atleast_1d(gamma0)
+        P = np.atleast_1d(P)
+        t = np.atleast_1d(t)
         
         # Take the floating point modulo to keep value in the interval of 0 and 2pi.
         # This is important to control numerical errors
-        return (gamma0 + 2 * np.pi * t / P) % (2 * np.pi)
+        return (gamma0 + 2 * np.pi * t[:, None] / P) % (2 * np.pi)
 
     @staticmethod
     def calculate_theta_series(gamma, e):
@@ -42,12 +46,23 @@ class Orbits():
     @staticmethod
     def calculate_theta_iterative(gamma, e, tolerance=DEFAULT_TOLERANCE):
         """
-        Calculate the true enomaly from mean anomaly.
+        Calculate the true anomaly from mean anomaly.
 
         This uses an iterative algorithm to solve the equation and works even for
         highly eccentric orbits.
         """
         return Orbits.calculate_true_anomaly_from_mean(e, gamma, tolerance=tolerance)
+
+    @staticmethod
+    def calculate_t_from_theta(E):
+        """
+        Calculate the time it takes to go from theta_0 to theta.
+
+        P is period in any time unit
+        t is time in the same unit as P
+        """
+        # E - 2 * np.pi / P * e * np.sin(E)
+        raise NotImplementedError()
     
     @staticmethod
     def calculate_v_los(a, P, e, i, theta, omega):
@@ -100,29 +115,29 @@ class Orbits():
         return P_years * Orbits.DAYS_PER_YEAR
 
     @staticmethod
-    def calculate_eccentric_anomaly_from_mean(e, M, tolerance=DEFAULT_TOLERANCE):
+    def calculate_eccentric_anomaly_from_mean(e, gamma, tolerance=DEFAULT_TOLERANCE):
         """Convert mean anomaly to eccentric anomaly.
         Implemented from [A Practical Method for Solving the Kepler Equation][1]
         by Marc A. Murison from the U.S. Naval Observatory
         [1]: http://murison.alpheratz.net/dynamics/twobody/KeplerIterations_summary.pdf
         """
-        Mnorm = np.fmod(M, 2 * np.pi)
-        E0 = M + (-1 / 2 * e ** 3 + e + (e ** 2 + 3 / 2 * np.cos(M) * e ** 3) * np.cos(M)) * np.sin(M)
-        dE = tolerance + 1
+        gamma_norm = np.fmod(gamma, 2 * np.pi)
+        E0 = gamma_norm + (-1 / 2 * e ** 3 + e + (e ** 2 + 3 / 2 * np.cos(gamma_norm) * e ** 3) * np.cos(gamma_norm)) * np.sin(gamma_norm)        
+        dE = tolerance + 1      # Make sure the first iteration runs
         count = 0
         while np.any(dE > tolerance):
             t1 = np.cos(E0)
             t2 = -1 + e * t1
             t3 = np.sin(E0)
             t4 = e * t3
-            t5 = -E0 + t4 + Mnorm
+            t5 = -E0 + t4 + gamma_norm
             t6 = t5 / (1 / 2 * t5 * t4 / t2 + t2)
             E = E0 - t5 / ((1 / 2 * t3 - 1 / 6 * t1 * t6) * e * t6 + t2)
             dE = abs(E - E0)
             E0 = E
             count += 1
             if count == Orbits.MAX_ITERATIONS:
-                raise Exception('Did not converge after {n} iterations. (e={e!r}, M={M!r})'.format(n=MAX_ITERATIONS, e=e, M=M))
+                raise Exception('Did not converge after {n} iterations. (e={e!r}, M={M!r})'.format(n=Orbits.MAX_ITERATIONS, e=e, M=gamma))
         return E
 
     @staticmethod
