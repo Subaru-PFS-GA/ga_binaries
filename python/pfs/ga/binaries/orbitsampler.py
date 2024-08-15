@@ -3,6 +3,7 @@ import scipy
 
 from .orbits import Orbits
 from .binaries import Binaries
+from .luminosity import Luminosity
 
 class OrbitSampler():
     """
@@ -80,6 +81,26 @@ class OrbitSampler():
         omega = np.random.uniform(0, 2 * np.pi, size=size)
         return np.atleast_1d(omega)
     
+    
+    def _sample_magnitudes(self, size=1): #added by Anney
+        #First, generate CDF from histogram; normalize
+        RGB_LF = np.load('laszlo_RGB_LF.npy') 
+        RGB_LF_BINS = np.load('laszlo_RGBLF_bins.npy')
+        
+        bin_midpoints = 0.5 * (RGB_LF_BINS[1:] + RGB_LF_BINS[:-1])
+        cdf = np.cumsum(RGB_LF)
+        cdf = cdf / cdf[-1] #normalize the cdf so it adds up to 1
+        cdf = np.concatenate(([0],cdf), axis=None) #prepend cdf with 0 so the interpolation later doesn't throw "below the range" error
+        #^Otherwise will get ValueError: A value in x_new is below the interpolation range.
+        bin_midpoints_plus_leftedge = np.concatenate(([bin_midpoints[0] - (bin_midpoints[1]-bin_midpoints[0])/2],bin_midpoints), axis=None)
+        inverse_interpolation = scipy.interpolate.interp1d(cdf, bin_midpoints_plus_leftedge) #swap cdf and the bin_midpoints so the interpolation comes out as inverse
+        uniform_distr = np.random.rand(size)
+        #print(uniform_distr)
+        magnitudes = inverse_interpolation(uniform_distr)
+        return magnitudes
+    
+    
+    
     def sample(self, size=1):
         """
         Draw a sample of all orbital elements.
@@ -96,5 +117,7 @@ class OrbitSampler():
         bin.i = self._draw_inclination_i(size)
         bin.omega = self._draw_arg_of_periastron_omega(size)
         bin.theta0 = Orbits.calculate_theta_iterative(bin.gamma0, bin.e)
+        bin.v_com = np.random.normal(0, bin.v_spread, size) #line added by Anney, samples center-of-mass velocities
+        bin.lum = self._sample_magnitudes(size) #added by Anney
         
         return bin
