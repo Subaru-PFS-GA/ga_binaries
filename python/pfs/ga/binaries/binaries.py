@@ -6,8 +6,8 @@ from .observation import Observation
 class Binaries():
     def __init__(self):
         self.q = None               # mass ratio
-        self.m1 = None
-        self.m2 = None
+        self.m1 = None              # primary mass (m1 > m2)
+        self.m2 = None              # secondary mass
         self.logP = None            # log period [days]
         self.a = None               # semi major axis [AU]
         self.e = None               # excentricity
@@ -15,7 +15,6 @@ class Binaries():
         self.i = None               # inclination [rad]
         self.omega = None           # argument of periastron [rad]
         self.theta0 = None          # initial true anomaly [rad]
-
         self.K = None               # Semi-amplitude
 
     def to_dict(self, s=np.s_[:]):
