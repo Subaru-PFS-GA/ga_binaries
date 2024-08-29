@@ -1,158 +1,145 @@
 import numpy as np
-import scipy
+
+from .orbitutil import OrbitUtil
+from .observations import Observations
 
 class Orbits():
     """
-    Implements function to draw samples of binary orbital elements in
-    a convenient representation.
+    Represents a list of binary star systems with known orbital parameters at t = 0
+    and supports calculating observables at any future time.
+
+    Variables:
+    ----------
+    q : array of float
+        mass ratio m2 / m1
+    m1 : array of float
+        primary mass in solar masses
+    m2 : array of float
+        companion mass in solar masses
+    logP : array of float
+        log period in days
+    a : array of float
+        semi-major axis in AU
+    e : array of float
+        eccentricity
+    gamma0 : array of float
+        initial mean anomaly in radians
+    i : array of float
+        inclination in radians
+    omega : array of float
+        argument of periastron in radians
+    theta0 : array of float
+        initial true anomaly in radians
     """
 
-    DAYS_PER_YEAR = 365.25
-    DEFAULT_TOLERANCE = 1e-7
-    MAX_ITERATIONS = 100
+    def __init__(self):
+        # Orbital parameters
+        self.q = None               # mass ratio
+        self.m1 = None              # primary mass (m1 > m2)
+        self.m2 = None              # secondary mass
+        self.logP = None            # log period [days]
+        self.a = None               # semi major axis [AU]
+        self.e = None               # excentricity
+        self.gamma0 = None          # initial mean anomaly [rad]
+        self.i = None               # inclination [rad]
+        self.omega = None           # argument of periastron [rad]
+        self.theta0 = None          # initial true anomaly [rad]
+
+        # TODO: move these elsewhere
+        self.v_spread = 5.1 #non-binary velocity sigma #line added by Anney
+        self.v_com = None #added by Anney
+        self.lum = None #added by Anney, luminosity for each star
+        #luminoisity should be sampled only once & fixed per star, just like COM
+
+    def to_dict(self, s=np.s_[:]):
+        return dict(
+            q = self.q[s],
+            logP = self.logP[s],
+            a = self.a[s],
+            e = self.e[s],
+            gamma0 = self.gamma0[s],
+            i = self.i[s],
+            omega = self.omega[s],
+            theta0 = self.theta0[s]
+        )
     
-    @staticmethod
-    def calculate_gamma(gamma0, P, t):
-        """
-        Calculate mean anomaly from initial value, period and time.
-
-        gamma0 is initial mean anomaly in rad
-        P is period in any time unit
-        t is time in the same unit as P
-        """
-
-        gamma0 = np.atleast_1d(gamma0)
-        P = np.atleast_1d(P)
-        t = np.atleast_1d(t)
-        
-        # Take the floating point modulo to keep value in the interval of 0 and 2pi.
-        # This is important to control numerical errors
-        return (gamma0 + 2 * np.pi * t[:, None] / P) % (2 * np.pi)
-
-    @staticmethod
-    def calculate_theta_series(gamma, e):
-        """
-        Calculate the true anomaly from mean anomaly.
-
-        This series expansion is only valid for _small_ values of the eccentricity e.
-        Do not use, unless e is known to be small. Function only kept for reference
-        Use orbits.true_anomaly_from_mean instead.
-        """
-        # gamma in rad
-        return gamma + (2 * e - 1 / 4 * e**3) * np.sin(gamma) + \
-                    5 / 4 * e**2 * np.sin(2 * gamma) + \
-                    13 / 12 * e**3 * np.sin(3 * gamma)
-    
-    @staticmethod
-    def calculate_theta_iterative(gamma, e, tolerance=DEFAULT_TOLERANCE):
-        """
-        Calculate the true anomaly from mean anomaly.
-
-        This uses an iterative algorithm to solve the equation and works even for
-        highly eccentric orbits.
-        """
-        return Orbits.calculate_true_anomaly_from_mean(e, gamma, tolerance=tolerance)
-
-    @staticmethod
-    def calculate_t_from_theta(E):
-        """
-        Calculate the time it takes to go from theta_0 to theta.
-
-        P is period in any time unit
-        t is time in the same unit as P
-        """
-        # E - 2 * np.pi / P * e * np.sin(E)
+    def save(self, filename):
         raise NotImplementedError()
     
-    @staticmethod
-    def calculate_v_los(a, P, e, i, theta, omega):
-        """
-        Calculate the line of sight velocity at a given true anomaly.
+    def load(self, filename):
+        raise NotImplementedError()
 
-        a is semi major axis in AU
-        P is period in years
-        e is eccentricity
-        i is inclination
-        theta is true anomaly in rad
-        omega is the argument of periastron in rad
-        v_los is in units of AU/year
+    def calculate_observables(self, t, s=np.s_[:], obs=None):
         """
+        Calculate the observable quantities at time t.
+
+        The are calculated by evaluating the orbits at time t
+        and calculating the line-of-sight velocity.
+
+        The observation epoch `t` can be either a scalar or a 1d array. In the latter case,
+        the leading dimension of the returned observation will index the time.
+
+        The slice `s` can be used to select a subset of the binaries.
+
+        The return value is an `Observation` object with the following attributes:
+        t : the time in units of days
+        v_los : is in units of km/s
+
+        Parameters:
+        -----------
+        t : float or array of float
+            Time in days
+        s : slice
+            Slice to select a subset of the binaries
+        obs : Observation
+            Existing observation object to update. When None, a new object is created.
+
+        Returns:
+        --------
+        obs : Observation
+            simulated observation
+        """
+
+        gamma = OrbitUtil.calculate_gamma(self.gamma0[s], 10**self.logP[s], t)
+        theta = OrbitUtil.calculate_theta_iterative(gamma, self.e[s])
+        v_los = OrbitUtil.calculate_v_los(self.a[s], 10**self.logP[s] / OrbitUtil.DAYS_PER_YEAR, self.e[s], self.i[s], theta, self.omega[s])
+        v_los = OrbitUtil.convert_AU_per_year_to_km_per_sec(v_los)
+
+        if obs is None:
+            obs = Observations()
         
-        # This is the equivalent of Evan's Eq 1.
-        # Originally from Green (and Smart)
-        # a in AU, P in years
-        # results are in AU / year
-        return 2 * np.pi / P * np.sin(i) / np.sqrt(1 - e**2) * (np.cos(theta + omega) + e * np.cos(omega))
+        obs.t = t
+        obs.v_los = v_los
+
+        if np.size(t) > 1:
+            obs.dv_los = v_los[1:] - v_los[0] 
+        else:
+            obs.dv_los = None
+
+        return obs
     
-    @staticmethod
-    def calculate_major_axis_from_period(P, m1, m2):
-        """
-        Calculate the semi major axis from the period and masses
-        using Kepler's III
+    # TODO: what is this?
+    # It appears to evaluate the orbits at equal time intervals for a full period
+    # def simulate(self, gamma, s=np.s_[:]):
+    #     """
+    #     Evaluate the orbits at given delta gamma since gamma0 mean anomaly.
 
-        P is period in days
-        m1 is mass in units of Solar masses
-        m2 is mass in units of Solar masses
-        a is in units of AU
-        """
+    #     P is in days
+    #     t is in days
+    #     """
 
-        P_years = P / Orbits.DAYS_PER_YEAR
-        a = np.power((m1 + m2) * P_years**2, 1 / 3)
-        return a
+    #     gamma = np.atleast_1d(gamma)
+    #     gamma = gamma + self.gamma0[s]
+    #     theta = OrbitUtil.calculate_theta_iterative(gamma, self.e[s])
+    #     v_los = OrbitUtil.calculate_v_los(self.a[s], 10**self.logP[s] / OrbitUtil.DAYS_PER_YEAR, self.e[s], self.i[s], theta, self.omega[s])
+    #     v_los = OrbitUtil.convert_AU_per_year_to_km_per_sec(v_los)
+    #     v_los_err = np.full_like(v_los, np.nan)
 
-    @staticmethod
-    def calculate_period_from_major_axis(a, m1, m2):
-        """
-        Calculate the period from the semi major axis and masses
-        using Kepler's III
+    #     obs = Observables()
+    #     obs.t = gamma / 2.0 / np.pi * 10 ** self.logP
+    #     obs.v_los = v_los
+    #     obs.v_los_err = v_los_err
 
-        a is in units of AU
-        m1 is mass in units of Solar masses
-        m2 is mass in units of Solar masses
-        P is period in days
-        """
-        P_years = np.sqrt(a**3 / (m1 + m2))
-        return P_years * Orbits.DAYS_PER_YEAR
-
-    @staticmethod
-    def calculate_eccentric_anomaly_from_mean(e, gamma, tolerance=DEFAULT_TOLERANCE):
-        """Convert mean anomaly to eccentric anomaly.
-        Implemented from [A Practical Method for Solving the Kepler Equation][1]
-        by Marc A. Murison from the U.S. Naval Observatory
-        [1]: http://murison.alpheratz.net/dynamics/twobody/KeplerIterations_summary.pdf
-        """
-        gamma_norm = np.fmod(gamma, 2 * np.pi)
-        E0 = gamma_norm + (-1 / 2 * e ** 3 + e + (e ** 2 + 3 / 2 * np.cos(gamma_norm) * e ** 3) * np.cos(gamma_norm)) * np.sin(gamma_norm)        
-        dE = tolerance + 1      # Make sure the first iteration runs
-        count = 0
-        while np.any(dE > tolerance):
-            t1 = np.cos(E0)
-            t2 = -1 + e * t1
-            t3 = np.sin(E0)
-            t4 = e * t3
-            t5 = -E0 + t4 + gamma_norm
-            t6 = t5 / (1 / 2 * t5 * t4 / t2 + t2)
-            E = E0 - t5 / ((1 / 2 * t3 - 1 / 6 * t1 * t6) * e * t6 + t2)
-            dE = abs(E - E0)
-            E0 = E
-            count += 1
-            if count == Orbits.MAX_ITERATIONS:
-                raise Exception('Did not converge after {n} iterations. (e={e!r}, M={M!r})'.format(n=Orbits.MAX_ITERATIONS, e=e, M=gamma))
-        return E
-
-    @staticmethod
-    def calculate_true_anomaly_from_eccentric(e, E):
-        """Convert eccentric anomaly to true anomaly."""
-        return 2 * np.arctan2(np.sqrt(1 + e) * np.sin(E / 2), np.sqrt(1 - e) * np.cos(E / 2))
-
-    @staticmethod
-    def calculate_true_anomaly_from_mean(e, gamma, tolerance=DEFAULT_TOLERANCE):
-        """Convert mean anomaly to true anomaly."""
-        E = Orbits.calculate_eccentric_anomaly_from_mean(e, gamma, tolerance)
-        return Orbits.calculate_true_anomaly_from_eccentric(e, E)
+    #     return obs
     
-    def convert_AU_per_year_to_km_per_sec(v):
-        AU = 1.495978707e8 # km
-        yr = 31557600 # s
-        return v * AU / yr
-    
+        
